@@ -183,11 +183,17 @@ const InstructorProfileView = ({ instructor, onBack, onBookClass }: { instructor
   const [showBook, setShowBook] = useState(false); const [showOk, setShowOk] = useState(false); const [booking, setBooking] = useState(false);
   const fetchT = useCallback(async()=>{
     setLt(true); const ds=format(selDate,'yyyy-MM-dd'); const dow=selDate.getDay();
-    const {data:av, error:avErr}=await supabase.from('availability').select('start_time,end_time,is_enabled').eq('instructor_id',instructor.id).eq('day_of_week',dow).maybeSingle();
-    if(avErr || !av || !av.is_enabled){setTimes([]);setLt(false);return;}
-    const sh=parseInt(av.start_time.split(':')[0]),eh=parseInt(av.end_time.split(':')[0]);
-    if(sh>=eh){setTimes([]);setLt(false);return;}
-    let sl:string[]=[]; for(let h=sh;h<eh;h++)sl.push(`${h.toString().padStart(2,'0')}:00`);
+    // Get ALL availability slots for this day (multiple per day now)
+    const {data:avSlots}=await supabase.from('availability').select('start_time,end_time,is_enabled').eq('instructor_id',instructor.id).eq('day_of_week',dow).eq('is_enabled',true);
+    if(!avSlots || avSlots.length===0){setTimes([]);setLt(false);return;}
+    // Generate hourly slots from all availability blocks
+    let sl:string[]=[];
+    for(const av of avSlots){
+      const sh=parseInt(av.start_time.split(':')[0]),eh=parseInt(av.end_time.split(':')[0]);
+      for(let h=sh;h<eh;h++)sl.push(`${h.toString().padStart(2,'0')}:00`);
+    }
+    // Remove duplicates and sort
+    sl=[...new Set(sl)].sort();
     const now=new Date(); if(isBefore(selDate,startOfDay(now))){setTimes([]);setLt(false);return;}
     if(isSameDay(selDate,now))sl=sl.filter(t=>parseInt(t)>now.getHours());
     const {data:busy}=await supabase.from('busy_slots').select('start_time,end_time').eq('instructor_id',instructor.id).eq('date',ds);
@@ -314,57 +320,58 @@ const InstructorDashboard = ({ classes, name }: { classes: ScheduledClass[]; nam
 
 const dayNames = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 
-interface AvailSlot { id?: string; instructor_id: string; day_of_week: number; start_time: string; end_time: string; is_enabled: boolean; }
+interface AvailSlot { id?: string; _localId?: string; instructor_id: string; day_of_week: number; start_time: string; end_time: string; is_enabled: boolean; }
 
 const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefresh }: { instructorId: string; classes: ScheduledClass[]; onCancelClass: (id: string) => Promise<void>; onRefresh: () => void }) => {
   const [tab, setTab] = useState<'agenda'|'disponibilidade'>('agenda');
-  const [availability, setAvailability] = useState<AvailSlot[]>([]);
+  const [slots, setSlots] = useState<AvailSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [cancellingId, setCancellingId] = useState<string|null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string|null>(null);
+  let localCounter = 0;
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const { data } = await supabase.from('availability').select('*').eq('instructor_id', instructorId).order('day_of_week');
+      const { data } = await supabase.from('availability').select('*').eq('instructor_id', instructorId).order('day_of_week').order('start_time');
       if (data && data.length > 0) {
-        setAvailability(data as AvailSlot[]);
-      } else {
-        const defaults: AvailSlot[] = [];
-        for (let d = 0; d <= 6; d++) defaults.push({ instructor_id: instructorId, day_of_week: d, start_time: d === 0 ? '00:00' : '08:00', end_time: d === 0 ? '00:00' : (d === 6 ? '13:00' : '18:00'), is_enabled: d !== 0 });
-        setAvailability(defaults);
+        setSlots(data.map((d: any) => ({ ...d, _localId: d.id })) as AvailSlot[]);
       }
       setLoading(false);
     };
     load();
   }, [instructorId]);
 
-  const toggleDay = (day: number) => { setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, is_enabled: !a.is_enabled } : a)); setSaved(false); };
-  const updateTime = (day: number, field: 'start_time' | 'end_time', value: string) => { setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, [field]: value } : a)); setSaved(false); };
+  const addSlot = (day: number) => {
+    localCounter++;
+    setSlots(prev => [...prev, { _localId: `new_${Date.now()}_${localCounter}`, instructor_id: instructorId, day_of_week: day, start_time: '08:00', end_time: '09:00', is_enabled: true }]);
+    setSaved(false);
+  };
+
+  const removeSlot = (localId: string) => {
+    setSlots(prev => prev.filter(s => (s._localId || s.id) !== localId));
+    setSaved(false);
+  };
+
+  const updateSlot = (localId: string, field: 'start_time' | 'end_time', value: string) => {
+    setSlots(prev => prev.map(s => (s._localId || s.id) === localId ? { ...s, [field]: value } : s));
+    setSaved(false);
+  };
 
   const saveAvailability = async () => {
     setSaving(true);
-    // Use individual upserts to avoid RLS issues with delete
+    // Delete all existing for this instructor, then insert all current slots
+    await supabase.from('availability').delete().eq('instructor_id', instructorId);
+    const toInsert = slots.filter(s => s.is_enabled).map(s => ({
+      instructor_id: instructorId, day_of_week: s.day_of_week,
+      start_time: s.start_time, end_time: s.end_time, is_enabled: true
+    }));
     let hasError = false;
-    for (const a of availability) {
-      // Try to find existing record
-      const { data: existing } = await supabase.from('availability')
-        .select('id').eq('instructor_id', instructorId).eq('day_of_week', a.day_of_week).maybeSingle();
-      
-      if (existing) {
-        // Update existing
-        const { error } = await supabase.from('availability')
-          .update({ start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled })
-          .eq('id', existing.id);
-        if (error) { console.error('Update error:', error); hasError = true; }
-      } else {
-        // Insert new
-        const { error } = await supabase.from('availability')
-          .insert({ instructor_id: instructorId, day_of_week: a.day_of_week, start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled });
-        if (error) { console.error('Insert error:', error); hasError = true; }
-      }
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from('availability').insert(toInsert);
+      if (error) { console.error('Save error:', error); hasError = true; }
     }
     setSaving(false);
     if (!hasError) setSaved(true);
@@ -381,11 +388,13 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
   const upcoming = classes.filter(c => c.status === 'upcoming').sort((a, b) => a.date.localeCompare(b.date));
   const cancelled = classes.filter(c => c.status === 'cancelled').sort((a, b) => b.date.localeCompare(a.date));
 
+  const slotsForDay = (day: number) => slots.filter(s => s.day_of_week === day && s.is_enabled);
+
   return (
     <div className="pb-24 pt-6 px-4 space-y-6">
       <header>
         <h1 className="text-2xl font-bold text-slate-900">Minha Agenda</h1>
-        <p className="text-slate-500 text-sm">{tab === 'agenda' ? 'Aulas e calendário' : 'Configure seus horários'}</p>
+        <p className="text-slate-500 text-sm">{tab === 'agenda' ? 'Aulas agendadas' : 'Configure seus horários'}</p>
       </header>
 
       <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -407,9 +416,7 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span>
-                      <button onClick={() => setConfirmCancelId(c.id)} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50 flex items-center gap-1">
-                        <X size={12} /> Cancelar
-                      </button>
+                      <button onClick={() => setConfirmCancelId(c.id)} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50 flex items-center gap-1"><X size={12} /> Cancelar</button>
                     </div>
                   </div>
                 </Card>
@@ -419,20 +426,15 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
             <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
               <CalendarIcon size={32} className="mx-auto text-slate-300 mb-3" />
               <p className="text-slate-500 font-medium">Sem aulas agendadas</p>
-              <p className="text-slate-400 text-sm mt-1">Quando um aluno agendar, aparecerá aqui</p>
             </div>
           )}
-
           {cancelled.length > 0 && (
             <section>
               <h2 className="text-lg font-bold text-slate-900 mb-3">Canceladas</h2>
               {cancelled.slice(0, 5).map(c => (
                 <Card key={c.id} className="bg-red-50/50 border-l-4 border-l-red-300 mb-3">
                   <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-medium text-slate-700">{c.student_name || 'Aluno'}</p>
-                      <p className="text-xs text-slate-500">{c.date} às {c.time?.substring(0, 5)}</p>
-                    </div>
+                    <div><p className="font-medium text-slate-700">{c.student_name || 'Aluno'}</p><p className="text-xs text-slate-500">{c.date} às {c.time?.substring(0, 5)}</p></div>
                     <span className="text-xs font-bold px-2 py-1 rounded-full bg-red-100 text-red-600">Cancelada</span>
                   </div>
                 </Card>
@@ -444,41 +446,47 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
         <div className="flex justify-center py-12"><Loader2 size={32} className="animate-spin text-velo-blue" /></div>
       ) : (
         <div className="space-y-4">
-          <p className="text-sm text-slate-500">Configure os dias e horários em que você está disponível. Os alunos só poderão agendar nos horários definidos aqui.</p>
-          {(() => {
-            return [1, 2, 3, 4, 5, 6, 0].map(day => {
-              const slot = availability.find(a => a.day_of_week === day);
-              if (!slot) return null;
-              return (
-                <div key={day} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="font-medium text-slate-700">{dayNames[day]}</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={slot.is_enabled} onChange={() => toggleDay(day)} />
-                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-velo-blue"></div>
-                    </label>
-                  </div>
-                  {slot.is_enabled && (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Início</label>
-                        <select value={slot.start_time} onChange={e => updateTime(day, 'start_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
-                          {Array.from({ length: 15 }, (_, i) => i + 6).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
-                        </select>
-                      </div>
-                      <span className="text-slate-400 mt-5">até</span>
-                      <div className="flex-1">
-                        <label className="text-xs text-slate-500 mb-1 block">Fim</label>
-                        <select value={slot.end_time} onChange={e => updateTime(day, 'end_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
-                          {Array.from({ length: 15 }, (_, i) => i + 7).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  )}
+          <p className="text-sm text-slate-500">Adicione blocos de horário para cada dia. Aulas duram 1 hora. Os alunos verão apenas esses horários.</p>
+          {[1, 2, 3, 4, 5, 6, 0].map(day => {
+            const daySlots = slotsForDay(day);
+            return (
+              <div key={day} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-bold text-slate-900">{dayNames[day]}</span>
+                  <button onClick={() => addSlot(day)} className="text-xs font-medium text-velo-blue bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center gap-1">
+                    + Horário
+                  </button>
                 </div>
-              );
-            });
-          })()}
+                {daySlots.length > 0 ? (
+                  <div className="space-y-2">
+                    {daySlots.map(slot => {
+                      const key = slot._localId || slot.id || '';
+                      return (
+                        <div key={key} className="flex items-center gap-2">
+                          <button onClick={() => removeSlot(key)} className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded-lg shrink-0">
+                            <X size={16} />
+                          </button>
+                          <div className="flex-1">
+                            <select value={slot.start_time} onChange={e => updateSlot(key, 'start_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                              {Array.from({ length: 16 }, (_, i) => i + 6).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
+                            </select>
+                          </div>
+                          <span className="text-slate-400 text-sm">até</span>
+                          <div className="flex-1">
+                            <select value={slot.end_time} onChange={e => updateSlot(key, 'end_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                              {Array.from({ length: 16 }, (_, i) => i + 7).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">Sem disponibilidade — clique "+ Horário" para adicionar</p>
+                )}
+              </div>
+            );
+          })}
           <Button className="w-full py-4 text-lg" onClick={saveAvailability} disabled={saving}>
             {saving ? <Loader2 size={20} className="animate-spin" /> : saved ? <><CheckCircle2 size={20} /> Salvo!</> : 'Salvar Disponibilidade'}
           </Button>
