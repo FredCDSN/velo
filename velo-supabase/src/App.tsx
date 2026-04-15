@@ -233,15 +233,47 @@ const InstructorProfileView = ({ instructor, onBack, onBookClass }: { instructor
 const StudentSchedule = ({ classes, onCancel, onRefresh }: { classes: ScheduledClass[]; onCancel: (id: string) => Promise<void>; onRefresh: () => void }) => {
   const up = classes.filter(c => c.status === 'upcoming').sort((a, b) => a.date.localeCompare(b.date));
   const past = classes.filter(c => c.status === 'completed' || c.status === 'cancelled').sort((a, b) => b.date.localeCompare(a.date));
+  const [confirmId, setConfirmId] = useState<string|null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const doCancel = async () => { if(!confirmId) return; setCancelling(true); await onCancel(confirmId); setCancelling(false); setConfirmId(null); onRefresh(); };
   return (
     <div className="pb-24 pt-6 px-4 space-y-6">
       <header><h1 className="text-2xl font-bold text-slate-900">Minhas Aulas</h1></header>
       <section><h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2"><Calendar size={20} className="text-velo-blue"/>Próximas</h2>
-        {up.length>0?up.map(c=><Card key={c.id} className="border-l-4 border-l-velo-blue flex justify-between items-center mb-3"><div><p className="font-bold text-slate-900">{c.instructor_name||'Instrutor'}</p><p className="text-sm text-slate-500">{c.date} às {c.time?.substring(0,5)}</p></div><button onClick={async()=>{await onCancel(c.id);onRefresh();}} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50">Cancelar</button></Card>):<div className="text-center py-8 bg-slate-50 rounded-xl border-dashed border"><p className="text-slate-500">Nenhuma aula agendada.</p></div>}
+        {up.length>0?up.map(c=><Card key={c.id} className="border-l-4 border-l-velo-blue mb-3">
+          <div className="flex justify-between items-start">
+            <div><p className="font-bold text-slate-900">{c.instructor_name||'Instrutor'}</p><p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14}/>{format(new Date(c.date+'T12:00:00'),"dd 'de' MMM",{locale:ptBR})} às {c.time?.substring(0,5)}</p></div>
+            <div className="flex flex-col items-end gap-2">
+              <span className="text-xs font-bold px-2 py-1 rounded-full bg-blue-50 text-velo-blue">Agendada</span>
+              <button onClick={()=>setConfirmId(c.id)} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50 flex items-center gap-1"><X size={12}/>Cancelar</button>
+            </div>
+          </div>
+        </Card>):<div className="text-center py-8 bg-slate-50 rounded-xl border-dashed border"><p className="text-slate-500">Nenhuma aula agendada.</p><p className="text-xs text-slate-400 mt-1">Busque um instrutor para agendar</p></div>}
       </section>
       <section><h2 className="text-lg font-bold text-slate-900 mb-4">Histórico</h2>
-        {past.length>0?past.map(c=><Card key={c.id} className="bg-slate-50 mb-3"><div className="flex justify-between"><div><p className="font-bold">{c.instructor_name}</p><p className="text-sm text-slate-500">{c.date}</p></div><span className={cn("text-xs font-bold px-2 py-1 rounded-full",c.status==='completed'?"bg-green-100 text-green-700":"bg-red-100 text-red-700")}>{c.status==='completed'?'Concluída':'Cancelada'}</span></div>{c.instructor_feedback&&<div className="mt-3 bg-blue-50 p-3 rounded-lg text-xs"><b className="text-velo-blue">Feedback:</b> {c.instructor_feedback}</div>}</Card>):<p className="text-sm text-slate-400 text-center py-4">Sem histórico.</p>}
+        {past.length>0?past.map(c=><Card key={c.id} className={cn("mb-3", c.status==='cancelled'?"bg-red-50/50 border-l-4 border-l-red-300":"bg-slate-50")}>
+          <div className="flex justify-between items-start">
+            <div><p className="font-bold text-slate-900">{c.instructor_name}</p><p className="text-sm text-slate-500">{c.date} às {c.time?.substring(0,5)}</p></div>
+            <span className={cn("text-xs font-bold px-2 py-1 rounded-full",c.status==='completed'?"bg-green-100 text-green-700":"bg-red-100 text-red-700")}>{c.status==='completed'?'Concluída':'Cancelada'}</span>
+          </div>
+          {c.status==='cancelled'&&<p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertTriangle size={12}/>Esta aula foi cancelada</p>}
+          {c.instructor_feedback&&<div className="mt-3 bg-blue-50 p-3 rounded-lg text-xs"><b className="text-velo-blue">Feedback:</b> {c.instructor_feedback}</div>}
+        </Card>):<p className="text-sm text-slate-400 text-center py-4">Sem histórico.</p>}
       </section>
+      <AnimatePresence>
+        {confirmId&&<div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={()=>setConfirmId(null)}/>
+          <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}} className="bg-white rounded-2xl p-6 w-full max-w-sm relative z-10 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={32}/></div>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Cancelar Aula?</h3>
+            <p className="text-slate-600 mb-6">O instrutor será notificado sobre o cancelamento. Esta ação não pode ser desfeita.</p>
+            <div className="flex gap-3">
+              <Button variant="ghost" className="flex-1" onClick={()=>setConfirmId(null)}>Manter</Button>
+              <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white" onClick={doCancel} disabled={cancelling}>{cancelling?<Loader2 size={20} className="animate-spin"/>:'Sim, cancelar'}</Button>
+            </div>
+          </motion.div>
+        </div>}
+      </AnimatePresence>
     </div>
   );
 };
@@ -281,12 +313,15 @@ const dayNames = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábad
 
 interface AvailSlot { id?: string; instructor_id: string; day_of_week: number; start_time: string; end_time: string; is_enabled: boolean; }
 
-const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: string; classes: ScheduledClass[] }) => {
+const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefresh }: { instructorId: string; classes: ScheduledClass[]; onCancelClass: (id: string) => Promise<void>; onRefresh: () => void }) => {
   const [tab, setTab] = useState<'agenda'|'disponibilidade'>('agenda');
   const [availability, setAvailability] = useState<AvailSlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string|null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<string|null>(null);
+  const [selDate, setSelDate] = useState<Date>(new Date());
 
   useEffect(() => {
     const load = async () => {
@@ -295,11 +330,8 @@ const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: str
       if (data && data.length > 0) {
         setAvailability(data as AvailSlot[]);
       } else {
-        // Create defaults if none exist
         const defaults: AvailSlot[] = [];
-        for (let d = 0; d <= 6; d++) {
-          defaults.push({ instructor_id: instructorId, day_of_week: d, start_time: d === 0 ? '00:00' : '08:00', end_time: d === 0 ? '00:00' : (d === 6 ? '13:00' : '18:00'), is_enabled: d !== 0 });
-        }
+        for (let d = 0; d <= 6; d++) defaults.push({ instructor_id: instructorId, day_of_week: d, start_time: d === 0 ? '00:00' : '08:00', end_time: d === 0 ? '00:00' : (d === 6 ? '13:00' : '18:00'), is_enabled: d !== 0 });
         setAvailability(defaults);
       }
       setLoading(false);
@@ -307,34 +339,38 @@ const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: str
     load();
   }, [instructorId]);
 
-  const toggleDay = (day: number) => {
-    setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, is_enabled: !a.is_enabled } : a));
-    setSaved(false);
-  };
-
-  const updateTime = (day: number, field: 'start_time' | 'end_time', value: string) => {
-    setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, [field]: value } : a));
-    setSaved(false);
-  };
+  const toggleDay = (day: number) => { setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, is_enabled: !a.is_enabled } : a)); setSaved(false); };
+  const updateTime = (day: number, field: 'start_time' | 'end_time', value: string) => { setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, [field]: value } : a)); setSaved(false); };
 
   const saveAvailability = async () => {
     setSaving(true);
-    // Delete existing and re-insert
     await supabase.from('availability').delete().eq('instructor_id', instructorId);
-    const { error } = await supabase.from('availability').insert(
-      availability.map(a => ({ instructor_id: instructorId, day_of_week: a.day_of_week, start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled }))
-    );
+    const { error } = await supabase.from('availability').insert(availability.map(a => ({ instructor_id: instructorId, day_of_week: a.day_of_week, start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled })));
     setSaving(false);
     if (!error) setSaved(true);
   };
 
+  const doCancel = async (id: string) => {
+    setCancellingId(id);
+    await onCancelClass(id);
+    setCancellingId(null);
+    setConfirmCancelId(null);
+    onRefresh();
+  };
+
   const upcoming = classes.filter(c => c.status === 'upcoming').sort((a, b) => a.date.localeCompare(b.date));
+  const cancelled = classes.filter(c => c.status === 'cancelled').sort((a, b) => b.date.localeCompare(a.date));
+  const classesOnDate = classes.filter(c => c.date === format(selDate, 'yyyy-MM-dd') && c.status === 'upcoming');
+
+  // Get availability for selected date
+  const selDayAvail = availability.find(a => a.day_of_week === selDate.getDay());
+  const dateHasAvail = selDayAvail?.is_enabled;
 
   return (
     <div className="pb-24 pt-6 px-4 space-y-6">
       <header>
         <h1 className="text-2xl font-bold text-slate-900">Minha Agenda</h1>
-        <p className="text-slate-500 text-sm">{tab === 'agenda' ? 'Aulas agendadas' : 'Configure seus horários'}</p>
+        <p className="text-slate-500 text-sm">{tab === 'agenda' ? 'Aulas e calendário' : 'Configure seus horários'}</p>
       </header>
 
       <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -343,21 +379,83 @@ const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: str
       </div>
 
       {tab === 'agenda' ? (
-        <div className="space-y-3">
-          {upcoming.length > 0 ? upcoming.map(c => (
-            <Card key={c.id} className="border-l-4 border-l-velo-blue">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-slate-900">{c.student_name || 'Aluno'}</p>
-                  <p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14} />{c.date} às {c.time?.substring(0, 5)}</p>
-                </div>
-                <span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span>
+        <div className="space-y-6">
+          <CalendarWidget selectedDate={selDate} onSelectDate={setSelDate} />
+
+          <section>
+            <h2 className="text-lg font-bold text-slate-900 mb-3">
+              Aulas em {format(selDate, "dd 'de' MMMM", { locale: ptBR })}
+            </h2>
+            {!dateHasAvail ? (
+              <div className="bg-slate-50 rounded-xl p-6 text-center border border-slate-100">
+                <p className="text-slate-500 text-sm">Você não está disponível neste dia.</p>
+                <p className="text-slate-400 text-xs mt-1">Ative na aba "Disponibilidade"</p>
               </div>
-            </Card>
-          )) : (
-            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+            ) : classesOnDate.length > 0 ? classesOnDate.map(c => (
+              <Card key={c.id} className="border-l-4 border-l-velo-blue mb-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-bold text-slate-900">{c.student_name || 'Aluno'}</p>
+                    <p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14} />{c.time?.substring(0, 5)}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span>
+                    <button onClick={() => setConfirmCancelId(c.id)} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50 flex items-center gap-1">
+                      <X size={12} /> Cancelar
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            )) : (
+              <div className="bg-slate-50 rounded-xl p-6 text-center border border-slate-100">
+                <p className="text-slate-500 text-sm">Nenhuma aula neste dia.</p>
+              </div>
+            )}
+          </section>
+
+          {upcoming.length > 0 && (
+            <section>
+              <h2 className="text-lg font-bold text-slate-900 mb-3">Todas as próximas aulas</h2>
+              {upcoming.map(c => (
+                <Card key={c.id} className="border-l-4 border-l-velo-blue mb-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-slate-900">{c.student_name || 'Aluno'}</p>
+                      <p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14} />{format(new Date(c.date + 'T12:00:00'), "dd 'de' MMM", { locale: ptBR })} às {c.time?.substring(0, 5)}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span>
+                      <button onClick={() => setConfirmCancelId(c.id)} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50 flex items-center gap-1">
+                        <X size={12} /> Cancelar
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </section>
+          )}
+
+          {cancelled.length > 0 && (
+            <section>
+              <h2 className="text-lg font-bold text-slate-900 mb-3">Canceladas</h2>
+              {cancelled.slice(0, 5).map(c => (
+                <Card key={c.id} className="bg-red-50/50 border-l-4 border-l-red-300 mb-3">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-slate-700">{c.student_name || 'Aluno'}</p>
+                      <p className="text-xs text-slate-500">{c.date} às {c.time?.substring(0, 5)}</p>
+                    </div>
+                    <span className="text-xs font-bold px-2 py-1 rounded-full bg-red-100 text-red-600">Cancelada</span>
+                  </div>
+                </Card>
+              ))}
+            </section>
+          )}
+
+          {upcoming.length === 0 && cancelled.length === 0 && (
+            <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
               <CalendarIcon size={32} className="mx-auto text-slate-300 mb-3" />
-              <p className="text-slate-500 font-medium">Sem aulas agendadas</p>
+              <p className="text-slate-500 font-medium">Sem aulas</p>
               <p className="text-slate-400 text-sm mt-1">Quando um aluno agendar, aparecerá aqui</p>
             </div>
           )}
@@ -366,8 +464,7 @@ const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: str
         <div className="flex justify-center py-12"><Loader2 size={32} className="animate-spin text-velo-blue" /></div>
       ) : (
         <div className="space-y-4">
-          <p className="text-sm text-slate-500">Configure os dias e horários em que você está disponível para dar aulas. Os alunos só poderão agendar nos horários que você definir aqui.</p>
-
+          <p className="text-sm text-slate-500">Configure os dias e horários em que você está disponível. Os alunos só poderão agendar nos horários definidos aqui.</p>
           {[1, 2, 3, 4, 5, 6, 0].map(day => {
             const slot = availability.find(a => a.day_of_week === day);
             if (!slot) return null;
@@ -384,21 +481,15 @@ const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: str
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
                       <label className="text-xs text-slate-500 mb-1 block">Início</label>
-                      <select value={slot.start_time} onChange={e => updateTime(day, 'start_time', e.target.value)}
-                        className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
-                        {Array.from({ length: 15 }, (_, i) => i + 6).map(h => (
-                          <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>
-                        ))}
+                      <select value={slot.start_time} onChange={e => updateTime(day, 'start_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                        {Array.from({ length: 15 }, (_, i) => i + 6).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
                       </select>
                     </div>
                     <span className="text-slate-400 mt-5">até</span>
                     <div className="flex-1">
                       <label className="text-xs text-slate-500 mb-1 block">Fim</label>
-                      <select value={slot.end_time} onChange={e => updateTime(day, 'end_time', e.target.value)}
-                        className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
-                        {Array.from({ length: 15 }, (_, i) => i + 7).map(h => (
-                          <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>
-                        ))}
+                      <select value={slot.end_time} onChange={e => updateTime(day, 'end_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                        {Array.from({ length: 15 }, (_, i) => i + 7).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
                       </select>
                     </div>
                   </div>
@@ -406,12 +497,30 @@ const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: str
               </div>
             );
           })}
-
           <Button className="w-full py-4 text-lg" onClick={saveAvailability} disabled={saving}>
             {saving ? <Loader2 size={20} className="animate-spin" /> : saved ? <><CheckCircle2 size={20} /> Salvo!</> : 'Salvar Disponibilidade'}
           </Button>
         </div>
       )}
+
+      <AnimatePresence>
+        {confirmCancelId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmCancelId(null)} />
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-white rounded-2xl p-6 w-full max-w-sm relative z-10 shadow-2xl text-center">
+              <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={32} /></div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Cancelar Aula?</h3>
+              <p className="text-slate-600 mb-6">O aluno será notificado sobre o cancelamento.</p>
+              <div className="flex gap-3">
+                <Button variant="ghost" className="flex-1" onClick={() => setConfirmCancelId(null)}>Manter</Button>
+                <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white" onClick={() => doCancel(confirmCancelId)} disabled={cancellingId === confirmCancelId}>
+                  {cancellingId === confirmCancelId ? <Loader2 size={20} className="animate-spin" /> : 'Sim, cancelar'}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -514,7 +623,7 @@ export default function App() {
         screen === 'instructor-profile-view' && selectedInstructor ? <InstructorProfileView instructor={selectedInstructor} onBack={() => nav('student-home')} onBookClass={handleBookClass} /> :
         screen === 'instructor-dashboard' ? <InstructorDashboard classes={classes} name={instructorProfile?.name||''} /> :
         screen === 'instructor-schedule' ? (
-          <InstructorScheduleScreen instructorId={instructorProfile?.id||''} classes={classes} />
+          <InstructorScheduleScreen instructorId={instructorProfile?.id||''} classes={classes} onCancelClass={handleCancel} onRefresh={() => instructorProfile && loadInstructorClasses(instructorProfile.id)} />
         ) :
         screen === 'instructor-students' ? (
           <div className="pb-24 pt-6 px-4"><h1 className="text-2xl font-bold text-slate-900 mb-6">Meus Alunos</h1>
