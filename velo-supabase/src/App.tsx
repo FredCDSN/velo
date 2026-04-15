@@ -346,10 +346,28 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
 
   const saveAvailability = async () => {
     setSaving(true);
-    await supabase.from('availability').delete().eq('instructor_id', instructorId);
-    const { error } = await supabase.from('availability').insert(availability.map(a => ({ instructor_id: instructorId, day_of_week: a.day_of_week, start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled })));
+    // Use individual upserts to avoid RLS issues with delete
+    let hasError = false;
+    for (const a of availability) {
+      // Try to find existing record
+      const { data: existing } = await supabase.from('availability')
+        .select('id').eq('instructor_id', instructorId).eq('day_of_week', a.day_of_week).maybeSingle();
+      
+      if (existing) {
+        // Update existing
+        const { error } = await supabase.from('availability')
+          .update({ start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled })
+          .eq('id', existing.id);
+        if (error) { console.error('Update error:', error); hasError = true; }
+      } else {
+        // Insert new
+        const { error } = await supabase.from('availability')
+          .insert({ instructor_id: instructorId, day_of_week: a.day_of_week, start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled });
+        if (error) { console.error('Insert error:', error); hasError = true; }
+      }
+    }
     setSaving(false);
-    if (!error) setSaved(true);
+    if (!hasError) setSaved(true);
   };
 
   const doCancel = async (id: string) => {
