@@ -293,14 +293,15 @@ const StudentProgress = ({ classes }: { classes: ScheduledClass[] }) => {
 };
 
 const InstructorDashboard = ({ classes, name }: { classes: ScheduledClass[]; name: string }) => {
-  const today = classes.filter(c => c.date === format(new Date(), 'yyyy-MM-dd'));
+  const today = classes.filter(c => c.date === format(new Date(), 'yyyy-MM-dd') && c.status === 'upcoming');
   const earn = classes.filter(c => c.status === 'completed').reduce((a, c) => a + Number(c.price), 0);
+  const activeClasses = classes.filter(c => c.status === 'upcoming' || c.status === 'completed').length;
   return (
     <div className="pb-24 pt-6 px-4 space-y-6">
       <header><p className="text-slate-500 text-sm">Bem-vindo,</p><h1 className="text-2xl font-bold text-slate-900">{name}</h1></header>
       <div className="grid grid-cols-2 gap-4">
         <Card className="bg-velo-blue text-white border-none"><DollarSign size={24} className="text-velo-blue-light mb-2"/><p className="text-3xl font-bold">R$ {earn}</p><p className="text-xs text-velo-blue-light mt-1">Ganhos</p></Card>
-        <Card><Users size={24} className="text-velo-blue mb-2"/><p className="text-3xl font-bold text-slate-900">{classes.length}</p><p className="text-xs text-slate-500 mt-1">Aulas</p></Card>
+        <Card><Users size={24} className="text-velo-blue mb-2"/><p className="text-3xl font-bold text-slate-900">{activeClasses}</p><p className="text-xs text-slate-500 mt-1">Aulas</p></Card>
       </div>
       <section><h2 className="text-lg font-bold text-slate-900 mb-4">Hoje</h2>
         {today.length>0?today.map(c=><Card key={c.id} className="mb-3 border-l-4 border-l-velo-blue"><div className="flex justify-between items-center"><div><p className="font-bold">{c.student_name||'Aluno'}</p><p className="text-sm text-slate-500">{c.time?.substring(0,5)}</p></div><span className="text-xs font-bold px-2 py-1 rounded-full bg-blue-50 text-velo-blue">Agendada</span></div></Card>):<p className="text-slate-400 text-sm text-center py-4">Sem aulas hoje.</p>}
@@ -321,7 +322,6 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
   const [saved, setSaved] = useState(false);
   const [cancellingId, setCancellingId] = useState<string|null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string|null>(null);
-  const [selDate, setSelDate] = useState<Date>(new Date());
 
   useEffect(() => {
     const load = async () => {
@@ -360,11 +360,6 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
 
   const upcoming = classes.filter(c => c.status === 'upcoming').sort((a, b) => a.date.localeCompare(b.date));
   const cancelled = classes.filter(c => c.status === 'cancelled').sort((a, b) => b.date.localeCompare(a.date));
-  const classesOnDate = classes.filter(c => c.date === format(selDate, 'yyyy-MM-dd') && c.status === 'upcoming');
-
-  // Get availability for selected date
-  const selDayAvail = availability.find(a => a.day_of_week === selDate.getDay());
-  const dateHasAvail = selDayAvail?.is_enabled;
 
   return (
     <div className="pb-24 pt-6 px-4 space-y-6">
@@ -380,42 +375,9 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
 
       {tab === 'agenda' ? (
         <div className="space-y-6">
-          <CalendarWidget selectedDate={selDate} onSelectDate={setSelDate} />
-
-          <section>
-            <h2 className="text-lg font-bold text-slate-900 mb-3">
-              Aulas em {format(selDate, "dd 'de' MMMM", { locale: ptBR })}
-            </h2>
-            {!dateHasAvail ? (
-              <div className="bg-slate-50 rounded-xl p-6 text-center border border-slate-100">
-                <p className="text-slate-500 text-sm">Você não está disponível neste dia.</p>
-                <p className="text-slate-400 text-xs mt-1">Ative na aba "Disponibilidade"</p>
-              </div>
-            ) : classesOnDate.length > 0 ? classesOnDate.map(c => (
-              <Card key={c.id} className="border-l-4 border-l-velo-blue mb-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-bold text-slate-900">{c.student_name || 'Aluno'}</p>
-                    <p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14} />{c.time?.substring(0, 5)}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span>
-                    <button onClick={() => setConfirmCancelId(c.id)} className="text-xs text-red-500 font-medium px-2 py-1 rounded-md hover:bg-red-50 flex items-center gap-1">
-                      <X size={12} /> Cancelar
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            )) : (
-              <div className="bg-slate-50 rounded-xl p-6 text-center border border-slate-100">
-                <p className="text-slate-500 text-sm">Nenhuma aula neste dia.</p>
-              </div>
-            )}
-          </section>
-
-          {upcoming.length > 0 && (
+          {upcoming.length > 0 ? (
             <section>
-              <h2 className="text-lg font-bold text-slate-900 mb-3">Todas as próximas aulas</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-3">Próximas aulas</h2>
               {upcoming.map(c => (
                 <Card key={c.id} className="border-l-4 border-l-velo-blue mb-3">
                   <div className="flex justify-between items-start">
@@ -433,6 +395,12 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
                 </Card>
               ))}
             </section>
+          ) : (
+            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+              <CalendarIcon size={32} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-slate-500 font-medium">Sem aulas agendadas</p>
+              <p className="text-slate-400 text-sm mt-1">Quando um aluno agendar, aparecerá aqui</p>
+            </div>
           )}
 
           {cancelled.length > 0 && (
@@ -451,52 +419,55 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
               ))}
             </section>
           )}
-
-          {upcoming.length === 0 && cancelled.length === 0 && (
-            <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-              <CalendarIcon size={32} className="mx-auto text-slate-300 mb-3" />
-              <p className="text-slate-500 font-medium">Sem aulas</p>
-              <p className="text-slate-400 text-sm mt-1">Quando um aluno agendar, aparecerá aqui</p>
-            </div>
-          )}
         </div>
       ) : loading ? (
         <div className="flex justify-center py-12"><Loader2 size={32} className="animate-spin text-velo-blue" /></div>
       ) : (
         <div className="space-y-4">
           <p className="text-sm text-slate-500">Configure os dias e horários em que você está disponível. Os alunos só poderão agendar nos horários definidos aqui.</p>
-          {[1, 2, 3, 4, 5, 6, 0].map(day => {
-            const slot = availability.find(a => a.day_of_week === day);
-            if (!slot) return null;
-            return (
-              <div key={day} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-medium text-slate-700">{dayNames[day]}</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={slot.is_enabled} onChange={() => toggleDay(day)} />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-velo-blue"></div>
-                  </label>
-                </div>
-                {slot.is_enabled && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <label className="text-xs text-slate-500 mb-1 block">Início</label>
-                      <select value={slot.start_time} onChange={e => updateTime(day, 'start_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
-                        {Array.from({ length: 15 }, (_, i) => i + 6).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
-                      </select>
+          {(() => {
+            const today2 = new Date();
+            const getNextDateForDay = (dayOfWeek: number) => {
+              const diff = (dayOfWeek - today2.getDay() + 7) % 7;
+              const next = new Date(today2); next.setDate(today2.getDate() + (diff === 0 ? 0 : diff));
+              return format(next, 'dd/MM', { locale: ptBR });
+            };
+            return [1, 2, 3, 4, 5, 6, 0].map(day => {
+              const slot = availability.find(a => a.day_of_week === day);
+              if (!slot) return null;
+              return (
+                <div key={day} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <span className="font-medium text-slate-700">{dayNames[day]}</span>
+                      <span className="text-slate-400 text-sm ml-2">{getNextDateForDay(day)}</span>
                     </div>
-                    <span className="text-slate-400 mt-5">até</span>
-                    <div className="flex-1">
-                      <label className="text-xs text-slate-500 mb-1 block">Fim</label>
-                      <select value={slot.end_time} onChange={e => updateTime(day, 'end_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
-                        {Array.from({ length: 15 }, (_, i) => i + 7).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
-                      </select>
-                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={slot.is_enabled} onChange={() => toggleDay(day)} />
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-velo-blue"></div>
+                    </label>
                   </div>
-                )}
-              </div>
-            );
-          })}
+                  {slot.is_enabled && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-slate-500 mb-1 block">Início</label>
+                        <select value={slot.start_time} onChange={e => updateTime(day, 'start_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                          {Array.from({ length: 15 }, (_, i) => i + 6).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
+                        </select>
+                      </div>
+                      <span className="text-slate-400 mt-5">até</span>
+                      <div className="flex-1">
+                        <label className="text-xs text-slate-500 mb-1 block">Fim</label>
+                        <select value={slot.end_time} onChange={e => updateTime(day, 'end_time', e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                          {Array.from({ length: 15 }, (_, i) => i + 7).map(h => <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
           <Button className="w-full py-4 text-lg" onClick={saveAvailability} disabled={saving}>
             {saving ? <Loader2 size={20} className="animate-spin" /> : saved ? <><CheckCircle2 size={20} /> Salvo!</> : 'Salvar Disponibilidade'}
           </Button>
