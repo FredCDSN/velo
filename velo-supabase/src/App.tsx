@@ -183,11 +183,13 @@ const InstructorProfileView = ({ instructor, onBack, onBookClass }: { instructor
   const [showBook, setShowBook] = useState(false); const [showOk, setShowOk] = useState(false); const [booking, setBooking] = useState(false);
   const fetchT = useCallback(async()=>{
     setLt(true); const ds=format(selDate,'yyyy-MM-dd'); const dow=selDate.getDay();
-    const {data:av}=await supabase.from('availability').select('start_time,end_time,is_enabled').eq('instructor_id',instructor.id).eq('day_of_week',dow).single();
-    if(!av||!av.is_enabled){setTimes([]);setLt(false);return;}
+    const {data:av, error:avErr}=await supabase.from('availability').select('start_time,end_time,is_enabled').eq('instructor_id',instructor.id).eq('day_of_week',dow).maybeSingle();
+    if(avErr || !av || !av.is_enabled){setTimes([]);setLt(false);return;}
     const sh=parseInt(av.start_time.split(':')[0]),eh=parseInt(av.end_time.split(':')[0]);
+    if(sh>=eh){setTimes([]);setLt(false);return;}
     let sl:string[]=[]; for(let h=sh;h<eh;h++)sl.push(`${h.toString().padStart(2,'0')}:00`);
-    const now=new Date(); if(isSameDay(selDate,now))sl=sl.filter(t=>parseInt(t)>now.getHours()); if(isBefore(selDate,startOfDay(now))){setTimes([]);setLt(false);return;}
+    const now=new Date(); if(isBefore(selDate,startOfDay(now))){setTimes([]);setLt(false);return;}
+    if(isSameDay(selDate,now))sl=sl.filter(t=>parseInt(t)>now.getHours());
     const {data:busy}=await supabase.from('busy_slots').select('start_time,end_time').eq('instructor_id',instructor.id).eq('date',ds);
     const bt:string[]=[]; for(const b of busy||[]){const s2=parseInt(b.start_time.split(':')[0]),e2=parseInt(b.end_time.split(':')[0]);for(let h=s2;h<e2;h++)bt.push(`${h.toString().padStart(2,'0')}:00`);}
     const {data:cls}=await supabase.from('classes').select('time').eq('instructor_id',instructor.id).eq('date',ds).in('status',['upcoming','in-progress']);
@@ -426,22 +428,13 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
         <div className="space-y-4">
           <p className="text-sm text-slate-500">Configure os dias e horários em que você está disponível. Os alunos só poderão agendar nos horários definidos aqui.</p>
           {(() => {
-            const today2 = new Date();
-            const getNextDateForDay = (dayOfWeek: number) => {
-              const diff = (dayOfWeek - today2.getDay() + 7) % 7;
-              const next = new Date(today2); next.setDate(today2.getDate() + (diff === 0 ? 0 : diff));
-              return format(next, 'dd/MM', { locale: ptBR });
-            };
             return [1, 2, 3, 4, 5, 6, 0].map(day => {
               const slot = availability.find(a => a.day_of_week === day);
               if (!slot) return null;
               return (
                 <div key={day} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
                   <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <span className="font-medium text-slate-700">{dayNames[day]}</span>
-                      <span className="text-slate-400 text-sm ml-2">{getNextDateForDay(day)}</span>
-                    </div>
+                    <span className="font-medium text-slate-700">{dayNames[day]}</span>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input type="checkbox" className="sr-only peer" checked={slot.is_enabled} onChange={() => toggleDay(day)} />
                       <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-velo-blue"></div>
