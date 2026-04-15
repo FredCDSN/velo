@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   MapPin, Search, Filter, Star, Calendar, MessageCircle, CheckCircle2, Car, User, Home, 
   TrendingUp, Users, Settings, ChevronRight, Clock, DollarSign, LogOut, Mail, Lock, 
-  ArrowLeft, AlertTriangle, Upload, Loader2, ChevronLeft, Calendar as CalendarIcon, Trash2, X
+  ArrowLeft, AlertTriangle, Upload, Loader2, ChevronLeft, Calendar as CalendarIcon, Trash2, X, Camera, Play, Square
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { 
@@ -14,7 +14,7 @@ import { ptBR } from 'date-fns/locale';
 import { supabase } from './lib/supabase';
 
 type UserRole = 'student' | 'instructor' | null;
-type Screen = 'splash' | 'onboarding' | 'auth' | 'register' | 'student-home' | 'student-schedule' | 'student-progress' | 'student-profile' | 'instructor-profile-view' | 'instructor-dashboard' | 'instructor-schedule' | 'instructor-students' | 'instructor-profile';
+type Screen = 'splash' | 'onboarding' | 'auth' | 'register' | 'student-home' | 'student-schedule' | 'student-progress' | 'student-profile' | 'instructor-profile-view' | 'instructor-dashboard' | 'instructor-schedule' | 'instructor-students' | 'instructor-profile' | 'class-detail';
 
 interface Instructor { id: string; user_id: string; name: string; email?: string; phone?: string; image_url: string; vehicle_image_url: string; vehicle_model: string; vehicle_plate?: string; vehicle_year?: string; rating: number; total_reviews: number; price: number; location: string; bio: string; transmission: 'Manual' | 'Automatic'; type: 'Credenciado' | 'Autônomo'; }
 interface StudentProfile { id: string; user_id: string; name: string; email: string; phone: string; cpf: string; image_url: string; has_ladv: boolean; }
@@ -238,7 +238,7 @@ const InstructorProfileView = ({ instructor, onBack, onBookClass }: { instructor
   );
 };
 
-const StudentSchedule = ({ classes, onCancel, onRefresh }: { classes: ScheduledClass[]; onCancel: (id: string) => Promise<void>; onRefresh: () => void }) => {
+const StudentSchedule = ({ classes, onCancel, onRefresh, onClassClick }: { classes: ScheduledClass[]; onCancel: (id: string) => Promise<void>; onRefresh: () => void; onClassClick: (c: ScheduledClass) => void }) => {
   const up = classes.filter(c => c.status === 'upcoming').sort((a, b) => a.date.localeCompare(b.date));
   const past = classes.filter(c => c.status === 'completed' || c.status === 'cancelled').sort((a, b) => b.date.localeCompare(a.date));
   const [confirmId, setConfirmId] = useState<string|null>(null);
@@ -248,7 +248,7 @@ const StudentSchedule = ({ classes, onCancel, onRefresh }: { classes: ScheduledC
     <div className="pb-24 pt-6 px-4 space-y-6">
       <header><h1 className="text-2xl font-bold text-slate-900">Minhas Aulas</h1></header>
       <section><h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2"><Calendar size={20} className="text-velo-blue"/>Próximas</h2>
-        {up.length>0?up.map(c=><Card key={c.id} className="border-l-4 border-l-velo-blue mb-3">
+        {up.length>0?up.map(c=><Card key={c.id} className="border-l-4 border-l-velo-blue mb-3 cursor-pointer active:scale-[0.98] transition-transform" onClick={()=>onClassClick(c)}>
           <div className="flex justify-between items-start">
             <div><p className="font-bold text-slate-900">{c.instructor_name||'Instrutor'}</p><p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14}/>{format(new Date(c.date+'T12:00:00'),"dd 'de' MMM",{locale:ptBR})} às {c.time?.substring(0,5)}</p></div>
             <div className="flex flex-col items-end gap-2">
@@ -300,8 +300,10 @@ const StudentProgress = ({ classes }: { classes: ScheduledClass[] }) => {
   );
 };
 
-const InstructorDashboard = ({ classes, name }: { classes: ScheduledClass[]; name: string }) => {
+const InstructorDashboard = ({ classes, name, onClassClick }: { classes: ScheduledClass[]; name: string; onClassClick: (c: ScheduledClass) => void }) => {
   const today = classes.filter(c => c.date === format(new Date(), 'yyyy-MM-dd') && c.status === 'upcoming');
+  const inProgress = classes.filter(c => c.status === 'in-progress');
+  const allToday = [...inProgress, ...today];
   const earn = classes.filter(c => c.status === 'completed').reduce((a, c) => a + Number(c.price), 0);
   const activeClasses = classes.filter(c => c.status === 'upcoming' || c.status === 'completed').length;
   return (
@@ -312,7 +314,7 @@ const InstructorDashboard = ({ classes, name }: { classes: ScheduledClass[]; nam
         <Card><Users size={24} className="text-velo-blue mb-2"/><p className="text-3xl font-bold text-slate-900">{activeClasses}</p><p className="text-xs text-slate-500 mt-1">Aulas</p></Card>
       </div>
       <section><h2 className="text-lg font-bold text-slate-900 mb-4">Hoje</h2>
-        {today.length>0?today.map(c=><Card key={c.id} className="mb-3 border-l-4 border-l-velo-blue"><div className="flex justify-between items-center"><div><p className="font-bold">{c.student_name||'Aluno'}</p><p className="text-sm text-slate-500">{c.time?.substring(0,5)}</p></div><span className="text-xs font-bold px-2 py-1 rounded-full bg-blue-50 text-velo-blue">Agendada</span></div></Card>):<p className="text-slate-400 text-sm text-center py-4">Sem aulas hoje.</p>}
+        {allToday.length>0?allToday.map(c=><Card key={c.id} className={cn("mb-3 border-l-4 cursor-pointer active:scale-[0.98] transition-transform", c.status==='in-progress'?"border-l-orange-500":"border-l-velo-blue")} onClick={()=>onClassClick(c)}><div className="flex justify-between items-center"><div><p className="font-bold">{c.student_name||'Aluno'}</p><p className="text-sm text-slate-500">{c.time?.substring(0,5)}</p></div><span className={cn("text-xs font-bold px-2 py-1 rounded-full", c.status==='in-progress'?"bg-orange-50 text-orange-600":"bg-blue-50 text-velo-blue")}>{c.status==='in-progress'?'Em andamento':'Agendada'}</span></div></Card>):<p className="text-slate-400 text-sm text-center py-4">Sem aulas hoje.</p>}
       </section>
     </div>
   );
@@ -515,6 +517,173 @@ const InstructorScheduleScreen = ({ instructorId, classes, onCancelClass, onRefr
   );
 };
 
+const ClassDetailScreen = ({ cls, role, onBack, onRefresh }: { cls: ScheduledClass; role: UserRole; onBack: () => void; onRefresh: () => void }) => {
+  const [status, setStatus] = useState(cls.status);
+  const [checkInTime, setCheckInTime] = useState<string|null>(cls.check_in_time || null);
+  const [checkInPhoto, setCheckInPhoto] = useState<string|null>(null);
+  const [checkOutPhoto, setCheckOutPhoto] = useState<string|null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const canCheckOut = elapsed >= 3600; // 1 hour = 3600 seconds
+
+  // Timer
+  useEffect(() => {
+    if (status !== 'in-progress' || !checkInTime) return;
+    const interval = setInterval(() => {
+      const diff = Math.floor((Date.now() - new Date(checkInTime).getTime()) / 1000);
+      setElapsed(diff);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status, checkInTime]);
+
+  const formatTimer = (secs: number) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+  };
+
+  const handlePhoto = (type: 'checkin' | 'checkout') => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment';
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          if (type === 'checkin') setCheckInPhoto(ev.target?.result as string);
+          else setCheckOutPhoto(ev.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    input.click();
+  };
+
+  const doCheckIn = async () => {
+    if (!checkInPhoto) return;
+    setLoading(true);
+    const now = new Date().toISOString();
+    await supabase.from('classes').update({ status: 'in-progress', check_in_time: now }).eq('id', cls.id);
+    setCheckInTime(now); setStatus('in-progress');
+    setLoading(false);
+  };
+
+  const doCheckOut = async () => {
+    if (!checkOutPhoto || !canCheckOut) return;
+    setLoading(true);
+    const checkOut = new Date();
+    const checkIn = new Date(checkInTime!);
+    const dur = Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 60000));
+    await supabase.from('classes').update({ status: 'completed', check_out_time: checkOut.toISOString(), duration_minutes: dur }).eq('id', cls.id);
+    setStatus('completed');
+    setLoading(false);
+    onRefresh();
+  };
+
+  const otherName = role === 'student' ? (cls.instructor_name || 'Instrutor') : (cls.student_name || 'Aluno');
+  const progressPct = Math.min((elapsed / 3600) * 100, 100);
+
+  return (
+    <div className="min-h-screen bg-white pb-8">
+      <div className="pt-6 px-4 mb-6">
+        <button onClick={onBack} className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-600"><ChevronLeft size={24} /></button>
+      </div>
+      <div className="px-6 space-y-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-slate-900 mb-1">Aula com {otherName}</h1>
+          <p className="text-slate-500">{cls.date} às {cls.time?.substring(0,5)}</p>
+          <div className="mt-3 inline-block">
+            <span className={cn("text-xs font-bold px-3 py-1.5 rounded-full",
+              status === 'upcoming' ? "bg-blue-50 text-velo-blue" :
+              status === 'in-progress' ? "bg-orange-50 text-orange-600" :
+              status === 'completed' ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+            )}>{status === 'upcoming' ? 'Aguardando Check-in' : status === 'in-progress' ? 'Em andamento' : status === 'completed' ? 'Concluída' : 'Cancelada'}</span>
+          </div>
+        </div>
+
+        {/* Timer */}
+        {status === 'in-progress' && (
+          <div className="text-center">
+            <div className="bg-slate-900 text-white rounded-2xl p-6 inline-block w-full max-w-xs">
+              <p className="text-xs text-slate-400 uppercase tracking-wider mb-2">Tempo de aula</p>
+              <p className="text-5xl font-bold font-mono tracking-wider">{formatTimer(elapsed)}</p>
+              <div className="mt-4 h-2 bg-slate-700 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${progressPct}%`, backgroundColor: canCheckOut ? '#10B981' : '#0066CC' }} />
+              </div>
+              <p className="text-xs mt-2 text-slate-400">{canCheckOut ? 'Tempo mínimo atingido!' : `Mínimo: 1 hora (faltam ${formatTimer(Math.max(0, 3600 - elapsed))})`}</p>
+            </div>
+          </div>
+        )}
+
+        {status === 'completed' && (
+          <div className="text-center">
+            <div className="bg-green-50 border border-green-100 rounded-2xl p-6 w-full">
+              <CheckCircle2 size={48} className="text-velo-green mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-green-800">Aula Concluída!</h3>
+              <p className="text-sm text-green-600 mt-1">Parabéns pela aula completada.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Check-in Section */}
+        {status === 'upcoming' && (
+          <div className="space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2"><Play size={20} className="text-velo-blue" /> Check-in</h3>
+            <p className="text-sm text-slate-500">Tire uma foto para registrar o início da aula.</p>
+            <div onClick={() => handlePhoto('checkin')} className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center cursor-pointer hover:bg-slate-50 hover:border-velo-blue transition-all">
+              {checkInPhoto ? (
+                <div className="relative">
+                  <img src={checkInPhoto} alt="Check-in" className="w-full h-48 object-cover rounded-xl" />
+                  <div className="absolute top-2 right-2 bg-velo-green text-white p-1 rounded-full"><CheckCircle2 size={16} /></div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-4 text-slate-400">
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center"><Camera size={28} /></div>
+                  <span className="text-sm font-medium">Toque para tirar foto</span>
+                </div>
+              )}
+            </div>
+            <Button className="w-full py-4 text-lg" onClick={doCheckIn} disabled={!checkInPhoto || loading}>
+              {loading ? <Loader2 size={20} className="animate-spin" /> : <><Play size={20} /> Iniciar Aula</>}
+            </Button>
+          </div>
+        )}
+
+        {/* Check-out Section */}
+        {status === 'in-progress' && (
+          <div className="space-y-4">
+            {checkInPhoto && (
+              <div>
+                <p className="text-xs text-slate-500 mb-2 font-medium">Foto do Check-in</p>
+                <img src={checkInPhoto} alt="Check-in" className="w-full h-32 object-cover rounded-xl opacity-60" />
+              </div>
+            )}
+            <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2"><Square size={20} className="text-orange-500" /> Check-out</h3>
+            <p className="text-sm text-slate-500">Tire uma foto para registrar o fim da aula. {!canCheckOut && 'Disponível após 1 hora.'}</p>
+            <div onClick={() => canCheckOut ? handlePhoto('checkout') : null} className={cn("border-2 border-dashed rounded-2xl p-6 text-center transition-all", canCheckOut ? "border-slate-200 cursor-pointer hover:bg-slate-50 hover:border-orange-400" : "border-slate-100 opacity-50 cursor-not-allowed")}>
+              {checkOutPhoto ? (
+                <div className="relative">
+                  <img src={checkOutPhoto} alt="Check-out" className="w-full h-48 object-cover rounded-xl" />
+                  <div className="absolute top-2 right-2 bg-velo-green text-white p-1 rounded-full"><CheckCircle2 size={16} /></div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 py-4 text-slate-400">
+                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center"><Camera size={28} /></div>
+                  <span className="text-sm font-medium">{canCheckOut ? 'Toque para tirar foto' : 'Aguarde o tempo mínimo'}</span>
+                </div>
+              )}
+            </div>
+            <Button className={cn("w-full py-4 text-lg", canCheckOut ? "bg-orange-500 hover:bg-orange-600" : "")} onClick={doCheckOut} disabled={!checkOutPhoto || !canCheckOut || loading}>
+              {loading ? <Loader2 size={20} className="animate-spin" /> : <><Square size={20} /> Finalizar Aula</>}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const NavButton = ({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) => (
   <button onClick={onClick} className={cn("flex flex-col items-center gap-1", active ? "text-velo-blue" : "text-slate-400")}>{icon}<span className="text-[10px] font-medium">{label}</span></button>
 );
@@ -527,6 +696,7 @@ export default function App() {
   const [instructorProfile, setInstructorProfile] = useState<Instructor|null>(null);
   const [selectedInstructor, setSelectedInstructor] = useState<Instructor|null>(null);
   const [classes, setClasses] = useState<ScheduledClass[]>([]);
+  const [selectedClass, setSelectedClass] = useState<ScheduledClass|null>(null);
   const [toast, setToast] = useState<{message:string;type:'success'|'error'}|null>(null);
   const nav = (s: Screen) => { setScreen(s); window.scrollTo(0, 0); };
 
@@ -588,7 +758,7 @@ export default function App() {
 
   const handleCancel = async (id: string) => { await supabase.from('classes').update({ status: 'cancelled' }).eq('id', id); };
 
-  const showNav = !['splash', 'onboarding', 'auth', 'register', 'instructor-profile-view'].includes(screen);
+  const showNav = !['splash', 'onboarding', 'auth', 'register', 'instructor-profile-view', 'class-detail'].includes(screen);
 
   return (
     <div className="bg-slate-50 min-h-screen font-sans max-w-md mx-auto shadow-2xl relative overflow-hidden">
@@ -599,7 +769,7 @@ export default function App() {
         screen === 'auth' ? <AuthScreen role={userRole} onLogin={handleLogin} onRegister={() => nav('register')} onBack={() => { setUserRole(null); nav('onboarding'); }} /> :
         screen === 'register' ? <RegisterScreen role={userRole} onRegister={handleRegister} onBack={() => nav('auth')} /> :
         screen === 'student-home' ? <StudentHome onSelectInstructor={i => { setSelectedInstructor(i); nav('instructor-profile-view'); }} userImg={studentProfile?.image_url} /> :
-        screen === 'student-schedule' ? <StudentSchedule classes={classes} onCancel={handleCancel} onRefresh={() => studentProfile && loadStudentClasses(studentProfile.id)} /> :
+        screen === 'student-schedule' ? <StudentSchedule classes={classes} onCancel={handleCancel} onRefresh={() => studentProfile && loadStudentClasses(studentProfile.id)} onClassClick={c=>{setSelectedClass(c);nav('class-detail');}} /> :
         screen === 'student-progress' ? <StudentProgress classes={classes} /> :
         screen === 'student-profile' ? (
           <div className="pb-24 pt-6 px-4 space-y-6">
@@ -610,8 +780,9 @@ export default function App() {
             <Button variant="outline" className="w-full text-red-500 border-red-200 hover:bg-red-50" onClick={handleLogout}><LogOut size={18}/> Sair</Button>
           </div>
         ) :
+        screen === 'class-detail' && selectedClass ? <ClassDetailScreen cls={selectedClass} role={userRole} onBack={() => { const backScreen = userRole === 'student' ? 'student-schedule' : 'instructor-dashboard'; if(userRole==='student' && studentProfile) loadStudentClasses(studentProfile.id); if(userRole==='instructor' && instructorProfile) loadInstructorClasses(instructorProfile.id); nav(backScreen); }} onRefresh={() => { if(userRole==='student' && studentProfile) loadStudentClasses(studentProfile.id); if(userRole==='instructor' && instructorProfile) loadInstructorClasses(instructorProfile.id); }} /> :
         screen === 'instructor-profile-view' && selectedInstructor ? <InstructorProfileView instructor={selectedInstructor} onBack={() => nav('student-home')} onBookClass={handleBookClass} /> :
-        screen === 'instructor-dashboard' ? <InstructorDashboard classes={classes} name={instructorProfile?.name||''} /> :
+        screen === 'instructor-dashboard' ? <InstructorDashboard classes={classes} name={instructorProfile?.name||''} onClassClick={c=>{setSelectedClass(c);nav('class-detail');}} /> :
         screen === 'instructor-schedule' ? (
           <InstructorScheduleScreen instructorId={instructorProfile?.id||''} classes={classes} onCancelClass={handleCancel} onRefresh={() => instructorProfile && loadInstructorClasses(instructorProfile.id)} />
         ) :
