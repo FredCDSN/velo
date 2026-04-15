@@ -277,6 +277,145 @@ const InstructorDashboard = ({ classes, name }: { classes: ScheduledClass[]; nam
   );
 };
 
+const dayNames = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+
+interface AvailSlot { id?: string; instructor_id: string; day_of_week: number; start_time: string; end_time: string; is_enabled: boolean; }
+
+const InstructorScheduleScreen = ({ instructorId, classes }: { instructorId: string; classes: ScheduledClass[] }) => {
+  const [tab, setTab] = useState<'agenda'|'disponibilidade'>('agenda');
+  const [availability, setAvailability] = useState<AvailSlot[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const { data } = await supabase.from('availability').select('*').eq('instructor_id', instructorId).order('day_of_week');
+      if (data && data.length > 0) {
+        setAvailability(data as AvailSlot[]);
+      } else {
+        // Create defaults if none exist
+        const defaults: AvailSlot[] = [];
+        for (let d = 0; d <= 6; d++) {
+          defaults.push({ instructor_id: instructorId, day_of_week: d, start_time: d === 0 ? '00:00' : '08:00', end_time: d === 0 ? '00:00' : (d === 6 ? '13:00' : '18:00'), is_enabled: d !== 0 });
+        }
+        setAvailability(defaults);
+      }
+      setLoading(false);
+    };
+    load();
+  }, [instructorId]);
+
+  const toggleDay = (day: number) => {
+    setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, is_enabled: !a.is_enabled } : a));
+    setSaved(false);
+  };
+
+  const updateTime = (day: number, field: 'start_time' | 'end_time', value: string) => {
+    setAvailability(prev => prev.map(a => a.day_of_week === day ? { ...a, [field]: value } : a));
+    setSaved(false);
+  };
+
+  const saveAvailability = async () => {
+    setSaving(true);
+    // Delete existing and re-insert
+    await supabase.from('availability').delete().eq('instructor_id', instructorId);
+    const { error } = await supabase.from('availability').insert(
+      availability.map(a => ({ instructor_id: instructorId, day_of_week: a.day_of_week, start_time: a.start_time, end_time: a.end_time, is_enabled: a.is_enabled }))
+    );
+    setSaving(false);
+    if (!error) setSaved(true);
+  };
+
+  const upcoming = classes.filter(c => c.status === 'upcoming').sort((a, b) => a.date.localeCompare(b.date));
+
+  return (
+    <div className="pb-24 pt-6 px-4 space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold text-slate-900">Minha Agenda</h1>
+        <p className="text-slate-500 text-sm">{tab === 'agenda' ? 'Aulas agendadas' : 'Configure seus horários'}</p>
+      </header>
+
+      <div className="flex bg-slate-100 p-1 rounded-xl">
+        <button onClick={() => setTab('agenda')} className={cn("flex-1 py-2.5 text-sm font-bold rounded-lg transition-all", tab === 'agenda' ? "bg-white text-velo-blue shadow-sm" : "text-slate-500")}>Aulas</button>
+        <button onClick={() => setTab('disponibilidade')} className={cn("flex-1 py-2.5 text-sm font-bold rounded-lg transition-all", tab === 'disponibilidade' ? "bg-white text-velo-blue shadow-sm" : "text-slate-500")}>Disponibilidade</button>
+      </div>
+
+      {tab === 'agenda' ? (
+        <div className="space-y-3">
+          {upcoming.length > 0 ? upcoming.map(c => (
+            <Card key={c.id} className="border-l-4 border-l-velo-blue">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="font-bold text-slate-900">{c.student_name || 'Aluno'}</p>
+                  <p className="text-sm text-slate-500 flex items-center gap-1"><Clock size={14} />{c.date} às {c.time?.substring(0, 5)}</p>
+                </div>
+                <span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span>
+              </div>
+            </Card>
+          )) : (
+            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+              <CalendarIcon size={32} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-slate-500 font-medium">Sem aulas agendadas</p>
+              <p className="text-slate-400 text-sm mt-1">Quando um aluno agendar, aparecerá aqui</p>
+            </div>
+          )}
+        </div>
+      ) : loading ? (
+        <div className="flex justify-center py-12"><Loader2 size={32} className="animate-spin text-velo-blue" /></div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">Configure os dias e horários em que você está disponível para dar aulas. Os alunos só poderão agendar nos horários que você definir aqui.</p>
+
+          {[1, 2, 3, 4, 5, 6, 0].map(day => {
+            const slot = availability.find(a => a.day_of_week === day);
+            if (!slot) return null;
+            return (
+              <div key={day} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-medium text-slate-700">{dayNames[day]}</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" className="sr-only peer" checked={slot.is_enabled} onChange={() => toggleDay(day)} />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-velo-blue"></div>
+                  </label>
+                </div>
+                {slot.is_enabled && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs text-slate-500 mb-1 block">Início</label>
+                      <select value={slot.start_time} onChange={e => updateTime(day, 'start_time', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                        {Array.from({ length: 15 }, (_, i) => i + 6).map(h => (
+                          <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <span className="text-slate-400 mt-5">até</span>
+                    <div className="flex-1">
+                      <label className="text-xs text-slate-500 mb-1 block">Fim</label>
+                      <select value={slot.end_time} onChange={e => updateTime(day, 'end_time', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white">
+                        {Array.from({ length: 15 }, (_, i) => i + 7).map(h => (
+                          <option key={h} value={`${h.toString().padStart(2, '0')}:00`}>{`${h.toString().padStart(2, '0')}:00`}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <Button className="w-full py-4 text-lg" onClick={saveAvailability} disabled={saving}>
+            {saving ? <Loader2 size={20} className="animate-spin" /> : saved ? <><CheckCircle2 size={20} /> Salvo!</> : 'Salvar Disponibilidade'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const NavButton = ({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) => (
   <button onClick={onClick} className={cn("flex flex-col items-center gap-1", active ? "text-velo-blue" : "text-slate-400")}>{icon}<span className="text-[10px] font-medium">{label}</span></button>
 );
@@ -375,10 +514,7 @@ export default function App() {
         screen === 'instructor-profile-view' && selectedInstructor ? <InstructorProfileView instructor={selectedInstructor} onBack={() => nav('student-home')} onBookClass={handleBookClass} /> :
         screen === 'instructor-dashboard' ? <InstructorDashboard classes={classes} name={instructorProfile?.name||''} /> :
         screen === 'instructor-schedule' ? (
-          <div className="pb-24 pt-6 px-4 space-y-6"><header><h1 className="text-2xl font-bold text-slate-900">Minha Agenda</h1></header>
-            {classes.filter(c=>c.status==='upcoming').sort((a,b)=>a.date.localeCompare(b.date)).map(c=><Card key={c.id} className="border-l-4 border-l-velo-blue mb-3"><div className="flex justify-between"><div><p className="font-bold">{c.student_name||'Aluno'}</p><p className="text-sm text-slate-500">{c.date} às {c.time?.substring(0,5)}</p></div><span className="font-bold text-velo-blue">R$ {Number(c.price).toFixed(0)}</span></div></Card>)}
-            {classes.filter(c=>c.status==='upcoming').length===0&&<p className="text-center text-slate-400 py-8">Sem aulas agendadas.</p>}
-          </div>
+          <InstructorScheduleScreen instructorId={instructorProfile?.id||''} classes={classes} />
         ) :
         screen === 'instructor-students' ? (
           <div className="pb-24 pt-6 px-4"><h1 className="text-2xl font-bold text-slate-900 mb-6">Meus Alunos</h1>
